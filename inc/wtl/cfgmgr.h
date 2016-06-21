@@ -18,19 +18,6 @@ namespace wtl
 {
     namespace cm
     {
-        namespace details
-        {
-            constexpr bool IsConfigretFail(CONFIGRET cr)
-            {
-                return cr != CR_SUCCESS;
-            }
-        }
-
-        template<typename T>
-        using configret_t = result_t<T, CONFIGRET, CR_SUCCESS, details::IsConfigretFail>;
-
-        using configret = configret_t<void>;
-
         static configret_t<ULONG> get_device_interface_list_size(GUID const & classGuid, PCWSTR pDeviceId = nullptr, ULONG flags = 0)
         {
             ULONG size;
@@ -48,6 +35,11 @@ namespace wtl
             RETURN_IF_NOT_CR_SUCCESS(CM_Get_Device_Interface_ListW((LPGUID)&classGuid, (DEVINSTID_W)pDeviceId, &buffer[0], size, flags));
 
             return configret_t<wtl::multi_sz>::success(std::move(buffer));
+        }
+
+        static DWORD map_configret_to_win32_err(CONFIGRET cr, DWORD defaultError = ERROR_INVALID_FUNCTION)
+        {
+            return CM_MapCrToWin32Err(cr, defaultError);
         }
     }
 }
