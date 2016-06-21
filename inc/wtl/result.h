@@ -35,28 +35,58 @@ namespace wtl
     };
 
     template<typename Value, typename ResultType, ResultType Success, bool IsFailure(ResultType)>
-    class result
+    class result_t
     {
         ResultType m_result;
         std::uint8_t m_data[sizeof(Value)];
 
-        result()
+        result_t()
         {
 
         }
 
+    protected:
+        void reset()
+        {
+            if (*this)
+            {
+                auto & value = get();
+                value.~Value();
+            }
+        }
+
+        template<typename RValue>
+        void init(RValue&& v)
+        {
+            new (m_data) Value(std::forward<RValue>(v));
+        }
+
+        template<typename RValue>
+        void reset(RValue&& v)
+        {
+            reset();
+
+            init(std::forward<RValue>(v));
+        }
+
+        void set_result(ResultType result)
+        {
+            m_result = result;
+        }
     public:
 
         // intentionally implicit
-
-        result(ResultType error)
+        result_t(ResultType error)
         {
-            ASSERT(IsFailure(error));
+            if (!IsFailure(error))
+            {
+                throw std::runtime_error("Cannot implicitly construct a result from a non-failure error code");
+            }
 
             m_result = error;
         }
 
-        result(result&& other)
+        result_t(result_t&& other)
         {
             m_result = other.m_result;
 
@@ -66,13 +96,9 @@ namespace wtl
             }
         }
 
-        ~result()
+        ~result_t()
         {
-            if (*this)
-            {
-                auto & value = get();
-                value.~Value();
-            }
+            reset();
         }
 
         operator ResultType() const
@@ -105,13 +131,13 @@ namespace wtl
         }
 
         template<typename _Val>
-        static result success(_Val&& value, ResultType res = Success)
+        static result_t success(_Val&& value, ResultType res = Success)
         {
             ASSERT(!IsFailure(res));
 
-            auto r = result();
-            r.m_result = res;
-            new (r.m_data) Value(std::forward<_Val>(value));
+            auto r = result_t();
+            r.set_result(res);
+            r.init(std::forward<_Val>(value));
             return r;
         }
 
@@ -124,8 +150,22 @@ namespace wtl
         }
     };
 
-    template<typename Value, typename ResultType, ResultType Success, bool IsFailure(ResultType)>
-    using result_t = typename result<Value, ResultType, Success, IsFailure>;
+#ifdef _ERRHANDLING_H_
+
+    namespace details
+    {
+        constexpr bool IsWin32Error(DWORD err)
+        {
+            return ERROR_SUCCESS != err;
+        }
+    }
+
+    template<typename T>
+    using win32_err_t = result_t<T, DWORD, ERROR_SUCCESS, details::IsWin32Error>;
+
+    using win32_err = win32_err_t<void>;
+
+#endif
 
 #ifdef _HRESULT_DEFINED
 
@@ -138,7 +178,36 @@ namespace wtl
     }
 
     template<typename T>
-    using hresult_t = result_t<T, HRESULT, S_OK, details::IsHresultFail>;
+    struct hresult_t : public result_t<T, HRESULT, S_OK, details::IsHresultFail>
+    {
+        hresult_t(HRESULT hr) : result_t(hr) { }
+
+        template<typename _Val>
+        static hresult_t success(_Val&& value, HRESULT res = S_OK)
+        {
+            if (FAILED(res))
+            {
+                throw std::runtime_error("Cannot construct hresult_t with an E_ failure code")
+            }
+
+            auto r = hresult_t();
+            r.set_result(res);
+            r.init(std::forward<_Val>(v));
+            return r;
+        }
+
+#ifdef _ERRHANDLING_H_
+        hresult_t(win32_err_t<T>&& win32Err) : this()
+        {
+            set_result(HRESULT_FROM_WIN32(win32Err.get_result()));
+
+            if (win32Err)
+            {
+                reset(std::move(win32Err.get()));
+            }
+        }
+#endif
+    };
 
     using hresult = hresult_t<void>;
 
