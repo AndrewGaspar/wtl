@@ -1,6 +1,12 @@
-#pragma once
+
+#ifndef _RESULT_H_
+#define _RESULT_H_
 
 #undef max
+
+#include <type_traits>
+#include <algorithm>
+#include <stdexcept>
 
 #define REQUIRE_SEMICOLON (true)
 
@@ -15,11 +21,7 @@
 #define ASSERT(_expr)
 #endif
 
-#include <type_traits>
-#include <algorithm>
-#include <stdexcept>
-
-namespace wtl 
+namespace wtl
 {
     template<typename ResultType>
     class result_exception : public std::runtime_error
@@ -123,23 +125,57 @@ namespace wtl
             }
         }
 
+        result_t & operator=(result_t const & rhs) = delete;
+
+        result_t & operator=(result_t&& rhs)
+        {
+            set_result(rhs.get_result());
+
+            if (*this && rhs)
+            {
+                get() = std::move(rhs.get());
+                return *this;
+            }
+
+            if (*this)
+            {
+                reset();
+                return *this;
+            }
+
+            if (rhs)
+            {
+                reset(std::move(rhs.get()));
+                return *this;
+            }
+
+            return *this;
+        }
+
         ~result_t()
         {
             reset();
         }
 
-        Value & get()
+        Value & get() &
         {
             ASSERT(*this);
 
             return *reinterpret_cast<Value*>(m_data);
         }
 
-        Value const & get() const
+        Value const & get() const &
         {
             ASSERT(*this);
 
             return *reinterpret_cast<Value const *>(m_data);
+        }
+
+        Value&& get() &&
+        {
+            ASSERT(*this);
+
+            return std::move(*reinterpret_cast<Value*>(m_data));
         }
 
         template<typename _Val>
@@ -153,8 +189,29 @@ namespace wtl
             return r;
         }
     };
+}
+
+#define CONCAT_TOKENS3(a,b,c)      a##b##c
+#define EXPAND_THEN_CONCAT3(a,b,c) CONCAT_TOKENS3(a,b,c)
+#define _WTL_ID_()                 EXPAND_THEN_CONCAT3(__wtl_,__LINE__,_result)
+
+#define RETURN_OR_UNWRAP(_resultName, _resultExpression) \
+    auto _WTL_ID_() = _resultExpression; \
+    if (!_WTL_ID_()) \
+    { \
+        return _WTL_ID_().get_result(); \
+    } \
+    auto _resultName = std::move(_WTL_ID_().get())
+
+#endif _RESULT_H_
+
+namespace wtl
+{
 
 #ifdef _ERRHANDLING_H_
+
+#ifndef _WIN32_RESULT_
+#define _WIN32_RESULT_
 
     namespace details
     {
@@ -171,7 +228,13 @@ namespace wtl
 
 #endif
 
+#endif
+
 #ifdef _CFGMGR32_H_
+
+#ifndef _CFGMGR32_RESULT_
+#define _CFGMGR32_RESULT_
+
     namespace details
     {
         constexpr bool IsConfigretFail(CONFIGRET cr)
@@ -185,9 +248,13 @@ namespace wtl
 
     using configret = result<CONFIGRET, CR_SUCCESS, details::IsConfigretFail>;
 
-#endif
+#endif //_CFGMGR32_RESULT_
+#endif //_CFGMGR32_H_
 
 #ifdef _HRESULT_DEFINED
+
+#ifndef _HRESULT_RESULT_
+#define _HRESULT_RESULT_
 
     namespace details
     {
@@ -200,84 +267,21 @@ namespace wtl
     using hresult = result<HRESULT, S_OK, details::IsHresultFail>;
 
     template<typename T>
-    class hresult_t : public result_t<T, HRESULT, S_OK, details::IsHresultFail>
-    {
-        hresult_t() : result_t() { }
-
-    public:
-
-        hresult_t(HRESULT hr) : result_t(hr) { }
-
-        operator hresult()
-        {
-            return hresult(get_result());
-        }
-
-        template<typename _Val>
-        static hresult_t success(_Val&& value, HRESULT res = S_OK)
-        {
-            if (FAILED(res))
-            {
-                throw std::runtime_error("Cannot construct hresult_t with an E_ failure code")
-            }
-
-            auto r = hresult_t();
-            r.set_result(res);
-            r.init(std::forward<_Val>(v));
-            return r;
-        }
-
-#ifdef _ERRHANDLING_H_
-        static hresult_t from_win32(win32_err_t<T> const & win32Err)
-        {
-            auto r = hresult_t();
-            r.set_result(HRESULT_FROM_WIN32(win32Err.get_result()));
-            if (win32Err) r.init(win32Err.get());
-            return r;
-        }
-
-        static hresult_t from_win32(win32_err_t<T>&& win32Err)
-        {
-            auto r = hresult_t();
-            r.set_result(HRESULT_FROM_WIN32(win32Err.get_result()));
-            if (win32Err) r.init(std::move(win32Err.get()));
-            return r;
-        }
-
-#ifdef _CFGMGR32_H_
-        static hresult_t from_configret(configret_t<T> const & configretErr)
-        {
-            auto r = hresult_t();
-            r.set_result(
-                HRESULT_FROM_WIN32(
-                    CM_MapCrToWin32Err(configretErr.get_result(), ERROR_INVALID_FUNCTION)));
-            if (configretErr) r.init(configretErr.get());
-            return r;
-        }
-
-        static hresult_t from_configret(configret_t<T>&& configretErr)
-        {
-            auto r = hresult_t();
-            r.set_result(
-                HRESULT_FROM_WIN32(
-                    CM_MapCrToWin32Err(configretErr.get_result(), ERROR_INVALID_FUNCTION)));
-            if (configretErr) r.init(std::move(configretErr.get()));
-            return r;
-        }
-#endif
-
-#endif
-    };
-
+    using hresult_t = result_t<T, HRESULT, S_OK, details::IsHresultFail>;
 
 #ifdef _ERRHANDLING_H_
     template<
         typename Win32ErrT, 
         typename T = Win32ErrT::value_type,
         typename = std::enable_if_t<std::is_same<std::decay_t<Win32ErrT>, win32_err_t<T>>::value, void>>
-    static hresult_t<T> hresult_from_win32(Win32ErrT&& errT)
+    static hresult_t<T> hresult_from_win32_t(Win32ErrT&& errT)
     {
-        return hresult_t<T>::from_win32(std::forward<Win32ErrT>(errT));
+        if (!errT)
+        {
+            return HRESULT_FROM_WIN32(errT.get_result());
+        }
+
+        return hresult_t<T>::success(std::forward<Win32ErrT>(errT).get());
     }
 
 #ifdef _CFGMGR32_H_
@@ -285,29 +289,24 @@ namespace wtl
         typename ConfigRetT,
         typename T = ConfigRetT::value_type,
         typename = std::enable_if_t<std::is_same<std::decay_t<ConfigRetT>, configret_t<T>>::value, void>>
-    static hresult_t<T> hresult_from_configret(ConfigRetT&& errT)
+    static hresult_t<T> hresult_from_configret_t(ConfigRetT&& errT)
     {
-        return hresult_t<T>::from_configret(std::forward<ConfigRetT>(errT));
+        if (!errT)
+        {
+            return HRESULT_FROM_WIN32(CM_MapCrToWin32Err(errT.get_result(), ERROR_INVALID_FUNCTION));
+        }
+
+        return hresult_t<T>::success(std::forward<ConfigRetT>(errT).get());
     }
-#endif
+#endif // _CFGMGR32_H_
+#endif // _ERRHANDLING_H_
 
-#endif
-
-#endif
+#endif //_HRESULT_RESULT_
+#endif // _HRESULT_DEFINED
 
 }
 
-#define CONCAT_TOKENS3(a,b,c)      a##b##c
-#define EXPAND_THEN_CONCAT3(a,b,c) CONCAT_TOKENS3(a,b,c)
-#define _WTL_ID_()                 EXPAND_THEN_CONCAT3(__wtl_,__LINE__,_result)
-
-#define RETURN_OR_UNWRAP(_resultName, _resultExpression) \
-    auto _WTL_ID_() = _resultExpression; \
-    if (!_WTL_ID_()) \
-    { \
-        return _WTL_ID_().get_result(); \
-    } \
-    auto _resultName = std::move(_WTL_ID_().get())
+#ifdef _HRESULT_DEFINED
 
 #define RETURN_IF_HR_FAILED(_hrExpression) { \
     auto _wtl_result = _hrExpression; \
@@ -317,4 +316,9 @@ namespace wtl
     } \
 } REQUIRE_SEMICOLON
 
+#ifdef _ERRHANDLING_H_
+
 #define RETURN_IF_LAST_ERROR() RETURN_IF_HR_FAILED(HRESULT_FROM_WIN32(GetLastError()))
+
+#endif 
+#endif

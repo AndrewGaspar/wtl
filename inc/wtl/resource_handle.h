@@ -1,15 +1,16 @@
 #pragma once
 
-namespace wtl {
-    template<typename HandleType, typename InvalidValueType, InvalidValueType ConstInvalidValue, typename ReleaseResource, ReleaseResource ReleaseFunc>
+#include <handleapi.h>
+
+namespace wtl
+{
+    template<typename HandleType, typename InvalidValueType, InvalidValueType InvalidValue, typename ReleaseResource, ReleaseResource ReleaseFunc>
     class resource_handle
     {
-        const HandleType InvalidValue = (HandleType)ConstInvalidValue;
-
         HandleType m_devInfo;
 
     public:
-        resource_handle() : m_devInfo(InvalidValue) { }
+        resource_handle() : m_devInfo((HandleType)InvalidValue) { }
         resource_handle(HandleType handle) : m_devInfo(handle) { }
 
         resource_handle(resource_handle const & other) = delete;
@@ -29,10 +30,10 @@ namespace wtl {
 
         ~resource_handle()
         {
-            reset(InvalidValue);
+            reset((HandleType)InvalidValue);
         }
 
-        operator bool() const { return m_devInfo != InvalidValue; }
+        operator bool() const { return m_devInfo != (HandleType)InvalidValue; }
 
         void reset(HandleType devInfo)
         {
@@ -47,7 +48,7 @@ namespace wtl {
         HandleType release()
         {
             auto devInfo = m_devInfo;
-            m_devInfo = InvalidValue;
+            m_devInfo = (HandleType)InvalidValue;
             return devInfo;
         }
 
@@ -57,7 +58,5 @@ namespace wtl {
         }
     };
 
-#ifdef _APISETHANDLE_
     using handle = resource_handle<HANDLE, int, -1, decltype(::CloseHandle), ::CloseHandle>;
-#endif
 }

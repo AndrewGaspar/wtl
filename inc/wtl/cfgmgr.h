@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Windows.h>
 #include <cfgmgr32.h>
 
 #include "resource_handle.h"
