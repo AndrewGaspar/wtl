@@ -178,6 +178,34 @@ namespace wtl
             return std::move(*reinterpret_cast<Value*>(m_data));
         }
 
+        Value& value() &
+        {
+            throw_if_failed();
+
+            return get();
+        }
+
+        Value const & value() const &
+        {
+            throw_if_failed();
+
+            return get();
+        }
+
+        Value&& value() &&
+        {
+            throw_if_failed();
+
+            return std::move(get());
+        }
+
+        Value const && value() const &&
+        {
+            throw_if_failed();
+
+            return std::move(get());
+        }
+
         template<typename _Val>
         static result_t success(_Val&& value, ResultType res = Success)
         {
@@ -269,34 +297,35 @@ namespace wtl
     template<typename T>
     using hresult_t = result_t<T, HRESULT, S_OK, details::IsHresultFail>;
 
+    using hresult_exception = result_exception<HRESULT>;
+
 #ifdef _ERRHANDLING_H_
-    template<
-        typename Win32ErrT, 
-        typename T = Win32ErrT::value_type,
-        typename = std::enable_if_t<std::is_same<std::decay_t<Win32ErrT>, win32_err_t<T>>::value, void>>
-    static hresult_t<T> hresult_from_win32_t(Win32ErrT&& errT)
+    static hresult as_hr(win32_err errT)
+    {
+        return HRESULT_FROM_WIN32(errT.get_result());
+    }
+
+    template<typename T>
+    static hresult_t<T> as_hr(win32_err_t<T>&& errT)
     {
         if (!errT)
         {
             return HRESULT_FROM_WIN32(errT.get_result());
         }
 
-        return hresult_t<T>::success(std::forward<Win32ErrT>(errT).get());
+        return hresult_t<T>::success(std::move(errT).get());
     }
 
 #ifdef _CFGMGR32_H_
-    template<
-        typename ConfigRetT,
-        typename T = ConfigRetT::value_type,
-        typename = std::enable_if_t<std::is_same<std::decay_t<ConfigRetT>, configret_t<T>>::value, void>>
-    static hresult_t<T> hresult_from_configret_t(ConfigRetT&& errT)
+    template<typename T>
+    static hresult_t<T> as_hr(configret_t<T>&& errT)
     {
         if (!errT)
         {
             return HRESULT_FROM_WIN32(CM_MapCrToWin32Err(errT.get_result(), ERROR_INVALID_FUNCTION));
         }
 
-        return hresult_t<T>::success(std::forward<ConfigRetT>(errT).get());
+        return hresult_t<T>::success(std::move(errT).get());
     }
 #endif // _CFGMGR32_H_
 #endif // _ERRHANDLING_H_
